@@ -1,0 +1,296 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Flock Energy - Urja Meter Ops API",
+    "description": "Clean REST API proxy over the legacy Urja Meter Ops portal.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "paths": {
+    "/api/v1/meters": {
+      "get": {
+        "summary": "List all meters",
+        "description": "Aggregates every page of the legacy portal's meter search endpoint into a single list.",
+        "responses": {
+          "200": {
+            "description": "Full list of meters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": {
+                      "type": "integer",
+                      "example": 403
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Legacy portal failed to respond",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/meters/{id}": {
+      "get": {
+        "summary": "Get meter details",
+        "description": "Returns nameplate details and location for a single meter.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "J100001"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Meter details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeterDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to fetch details from legacy portal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/meters/{id}/energy": {
+      "get": {
+        "summary": "Get meter energy readings",
+        "description": "Returns the meter's energy consumption history.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "J100001"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Energy readings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EnergyReading"
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to fetch energy data from legacy portal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/hierarchy": {
+      "get": {
+        "summary": "Get network distribution hierarchy",
+        "description": "Reconstructs the electrical topology (Feeder -> Distribution Transformer -> Meters) by aggregating transformers and meter assignments.",
+        "responses": {
+          "200": {
+            "description": "Network hierarchy grouped by feeder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FeederHierarchy"
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to assemble network hierarchy from legacy portal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "MeterDetails": {
+        "type": "object",
+        "properties": {
+          "meterId": {
+            "type": "string"
+          },
+          "serialNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "make": {
+            "type": "string",
+            "nullable": true
+          },
+          "phaseType": {
+            "type": "string",
+            "nullable": true
+          },
+          "installStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "installType": {
+            "type": "string",
+            "nullable": true
+          },
+          "location": {
+            "type": "object",
+            "properties": {
+              "latitude": {
+                "type": "number",
+                "nullable": true
+              },
+              "longitude": {
+                "type": "number",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "EnergyReading": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kwh": {
+            "type": "number"
+          },
+          "kvah": {
+            "type": "number"
+          },
+          "voltR": {
+            "type": "number"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "FeederHierarchy": {
+        "type": "object",
+        "properties": {
+          "feederCode": {
+            "type": "string",
+            "example": "F-001"
+          },
+          "transformers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "transformerCode": {
+                  "type": "string",
+                  "example": "DT-001"
+                },
+                "name": {
+                  "type": "string",
+                  "example": "Malviya Nagar DT 1"
+                },
+                "capacityKva": {
+                  "type": "integer",
+                  "example": 100
+                },
+                "meterCount": {
+                  "type": "integer",
+                  "example": 2
+                },
+                "meters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "meterId": {
+                        "type": "string",
+                        "example": "J100000"
+                      },
+                      "serialNo": {
+                        "type": "string",
+                        "example": "SE33962"
+                      },
+                      "status": {
+                        "type": "string",
+                        "example": "Decommissioned"
+                      },
+                      "phase": {
+                        "type": "string",
+                        "example": "single"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
