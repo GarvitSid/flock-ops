@@ -32,15 +32,41 @@ Create a `.env` file in the project root:
 ```env
 URJA_EMAIL=operator@urja.local
 URJA_PASSWORD=urja-ops-2026
+```env
+URJA_EMAIL=operator@urja.local
+URJA_PASSWORD=urja-ops-2026
+PORT=3000
 ```
+An example template is also provided in `.env.example`.
 
 ## Running it
 
 ```bash
-node app.js
+# Start production server
+npm start
+
+# Or start in watch mode for development
+npm run dev
+
+# Run automated tests
+npm test
 ```
 
-The server listens on `http://localhost:3000`. Note: The API uses a lazy-loaded session cache. It authenticates on the very first request and reuses that session cookie for all subsequent calls, keeping latency low.
+The server listens on `http://localhost:3000` (or `PORT` provided by environment). Note: The API uses a lazy-loaded session cache. It authenticates on the very first request and reuses that session cookie for all subsequent calls, with automatic interceptor-based session recovery if the session expires.
+
+## Deployment on Render
+
+This project is configured for deployment on [Render](https://render.com) as a Web Service:
+
+- **Blueprint (Infrastructure as Code):** A `render.yaml` specification is included for instant deployment.
+- **Build Command:** `npm install`
+- **Start Command:** `npm start`
+- **Health Check Path:** `/health`
+- **Environment Variables required:**
+  - `URJA_EMAIL`: Login email for the Urja portal
+  - `URJA_PASSWORD`: Login password for the Urja portal
+  - `NODE_VERSION`: `20` (optional, node engine specified >=18)
+
 
 ## API & Interactive Documentation
 

@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: flock-energy-api
+    runtime: node
+    plan: free
+    region: virginia
+    branch: main
+    buildCommand: yarn
+    startCommand: node app.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: URJA_EMAIL
+        sync: false
+      - key: URJA_PASSWORD
+        sync: false

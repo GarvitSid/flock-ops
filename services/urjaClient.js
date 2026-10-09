@@ -9,6 +9,7 @@ const client = wrapper(axios.create({
     baseURL: 'https://urja-ops.flockenergy.tech',
     jar,
     withCredentials: true,
+    timeout: 20000,
     headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
@@ -17,10 +18,41 @@ const client = wrapper(axios.create({
 let isAuthenticated = false;
 let loginPromise = null;
 
+// Response interceptor for automatic session recovery
+client.interceptors.response.use(
+    (response) => {
+        // SvelteKit may redirect to login if session expires
+        if (response.request?.res?.responseUrl && response.request.res.responseUrl.includes('/login')) {
+            isAuthenticated = false;
+        }
+        return response;
+    },
+    async (error) => {
+        const originalRequest = error.config;
+        if (
+            error.response &&
+            (error.response.status === 401 || error.response.status === 403) &&
+            originalRequest &&
+            !originalRequest._retry &&
+            !originalRequest.url?.includes('/login')
+        ) {
+            originalRequest._retry = true;
+            isAuthenticated = false;
+            console.log("⚠️ Upstream session expired or unauthorized. Re-authenticating...");
+            await urjaClient.ensureAuthenticated();
+            return client(originalRequest);
+        }
+        return Promise.reject(error);
+    }
+);
 
 const urjaClient = {
     async ensureAuthenticated() {
         if (isAuthenticated) return;
+
+        if (!process.env.URJA_EMAIL || !process.env.URJA_PASSWORD) {
+            throw new Error("Missing URJA_EMAIL or URJA_PASSWORD environment variable.");
+        }
 
         // Prevent race conditions: reuse in-flight login promise if multiple requests hit simultaneously
         if (!loginPromise) {
@@ -39,7 +71,7 @@ const urjaClient = {
         try {
             const payload = new URLSearchParams({ email, password });
 
-            const response = await client.post('/login', payload, {
+            await client.post('/login', payload, {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'x-sveltekit-action': 'true',
@@ -59,7 +91,7 @@ const urjaClient = {
             return true;
         } catch (error) {
             console.error("❌ Login failed:", error.message);
-            throw new Error("Authentication failed");
+            throw new Error(`Authentication failed: ${error.message}`);
         }
     },
 
@@ -67,18 +99,20 @@ const urjaClient = {
         try {
             console.log("Fetching page 1 to determine total pages...");
             const firstPageResponse = await client.get('/portal/meters/search?q=&page=1');
-            const initialData = firstPageResponse.data;
+            const initialData = firstPageResponse.data || {};
 
-            const totalRecords = initialData.total;
-            const pageSize = initialData.pageSize;
-            const totalPages = Math.ceil(totalRecords / pageSize);
+            const totalRecords = initialData.total || 0;
+            const pageSize = initialData.pageSize || 20;
+            const totalPages = pageSize > 0 ? Math.ceil(totalRecords / pageSize) : 1;
 
-            let allMeters = [...initialData.data];
-            console.log(`Found ${totalRecords} total meters. Fetching remaining ${totalPages - 1} pages...`);
+            let allMeters = [...(initialData.data || [])];
+            console.log(`Found ${totalRecords} total meters. Fetching remaining ${Math.max(0, totalPages - 1)} pages...`);
 
             for (let page = 2; page <= totalPages; page++) {
                 const response = await client.get(`/portal/meters/search?q=&page=${page}`);
-                allMeters.push(...response.data.data);
+                if (response.data && Array.isArray(response.data.data)) {
+                    allMeters.push(...response.data.data);
+                }
             }
 
             console.log(`Successfully aggregated all ${allMeters.length} meters!`);
@@ -96,8 +130,19 @@ const urjaClient = {
     async getEnergy(meterId) {
         try {
             const response = await client.get(`/portal/meters/${meterId}/energy`);
-            return response.data;
+            const rawData = Array.isArray(response.data) ? response.data : (response.data?.data || []);
+            return rawData.map(reading => ({
+                timestamp: reading.timestamp,
+                kwh: reading.kwh !== undefined && reading.kwh !== null && !isNaN(reading.kwh) ? Number(reading.kwh) : reading.kwh,
+                kvah: reading.kvah !== undefined && reading.kvah !== null && !isNaN(reading.kvah) ? Number(reading.kvah) : reading.kvah,
+                voltR: reading.voltR !== undefined && reading.voltR !== null && !isNaN(reading.voltR) ? Number(reading.voltR) : reading.voltR
+            }));
         } catch (error) {
+            if (error.response && error.response.status === 404) {
+                const notFound = new Error("Meter not found");
+                notFound.status = 404;
+                throw notFound;
+            }
             console.error(`Failed to fetch energy for ${meterId}:`, error.message);
             throw error;
         }
@@ -113,8 +158,10 @@ const urjaClient = {
             const $ = cheerio.load(htmlResponse.data);
 
             const geoData = geoResponse.data.data || {};
-            const latitude = geoData.latitude || null;
-            const longitude = geoData.longitude || null;
+            const lat = geoData.latitude !== undefined && geoData.latitude !== null && geoData.latitude !== '' ? Number(geoData.latitude) : null;
+            const lon = geoData.longitude !== undefined && geoData.longitude !== null && geoData.longitude !== '' ? Number(geoData.longitude) : null;
+            const latitude = Number.isFinite(lat) ? lat : null;
+            const longitude = Number.isFinite(lon) ? lon : null;
 
             const nameplate = {};
             $('dt').each((_, el) => {
@@ -157,8 +204,11 @@ const urjaClient = {
                 this.getAllMeters()
             ]);
 
-            const transformers = [...dtsPage1.data.data, ...dtsPage2.data.data];
-            const meters = metersResult.data;
+            const transformers = [
+                ...(dtsPage1.data?.data || []),
+                ...(dtsPage2.data?.data || [])
+            ];
+            const meters = metersResult.data || [];
 
             // 2. Group meters by their DT Code
             const metersByDt = {};
