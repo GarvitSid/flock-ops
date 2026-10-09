@@ -5,7 +5,7 @@ services:
     plan: free
     region: virginia
     branch: main
-    buildCommand: yarn
+    buildCommand: npm install
     startCommand: node app.js
     healthCheckPath: /health
     autoDeploy: true
